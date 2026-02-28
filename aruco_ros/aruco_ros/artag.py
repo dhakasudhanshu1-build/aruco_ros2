@@ -6,80 +6,106 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
+
 class ArucoMarkerNode(Node):
     def __init__(self):
         super().__init__('aruco_marker_node')
 
-        self.image_subscriber = self.create_subscription(
+        # Subscribers
+        self.image_sub = self.create_subscription(
             Image,
             '/camera/image_raw',
-            self.image_callback, 
+            self.image_callback,
             10
         )
-        
-        self.camera_info_subscriber = self.create_subscription(
+        self.camera_info_sub = self.create_subscription(
             CameraInfo,
             '/camera/camera_info',
             self.camera_info_callback,
             10
         )
 
-
         self.bridge = CvBridge()
+
         self.camera_matrix = None
         self.dist_coeffs = None
         self.got_camera_info = False
-        self.aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
+
+        # ArUco setup
+        self.aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_6X6_250)
         self.aruco_params = cv2.aruco.DetectorParameters_create()
-        self.get_logger().info("Aruco Marker Node has been started.")
+
+        self.marker_size = 0.10 # 10 cm macker sizw 
+
+        self.get_logger().info("Aruco Marker Node started")
 
 
     def camera_info_callback(self, msg: CameraInfo):
-        # Retrieve the camera calibration parameters from CameraInfo message
-        self.camera_matrix = np.array(msg.k).reshape((3, 3))
+        if self.got_camera_info:
+            return
+
+        self.camera_matrix = np.array(msg.k).reshape(3, 3)
         self.dist_coeffs = np.array(msg.d)
         self.got_camera_info = True
-        self.get_logger().info("Camera calibration received.")
 
+        self.get_logger().info("Camera calibration received")
 
     def image_callback(self, msg: Image):
         if not self.got_camera_info:
-            self.get_logger().warning("Waiting for camera info...")
             return
 
-        # Convert the ROS Image message to a CV2 image
-        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Convert to grayscale (Aruco detection works on grayscale images)
-        gray_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-
-        # Detect Aruco markers
-        corners, ids, rejected = cv2.aruco.detectMarkers(
-            gray_image, self.aruco_dict, parameters=self.aruco_params)
+        corners, ids, _ = cv2.aruco.detectMarkers(
+            gray,
+            self.aruco_dict,
+            parameters=self.aruco_params
+        )
 
         if ids is not None:
-            # Draw detected markers
-            cv2.aruco.drawDetectedMarkers(cv_image, corners, ids)
+            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
 
-            # Estimate pose for each marker
             rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                corners, 0.2, self.camera_matrix, self.dist_coeffs)
-            
+                corners,
+                self.marker_size,
+                self.camera_matrix,
+                self.dist_coeffs
+            )
 
-            # Draw axis for each marker
-            for i, rvec, tvec in zip(ids, rvecs, tvecs):
-                
-                cv2.aruco.drawAxis(cv_image, self.camera_matrix, self.dist_coeffs, rvec, tvec, 0.1)
-                marker_position = f"Position: {tvec[0][0]:.2f}, {tvec[0][1]:.2f}, {tvec[0][2]:.2f}"
-                cv2.putText(cv_image, marker_position, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            for marker_id, rvec, tvec in zip(ids, rvecs, tvecs):
+                cv2.aruco.drawAxis(
+                    frame,
+                    self.camera_matrix,
+                    self.dist_coeffs,
+                    rvec,
+                    tvec,
+                    0.03
+                )
 
-                r = R.from_euler('xyz', rvec, degrees=False)  # 'xyz' corresponds to roll, pitch, yaw
-                quaternion = r.as_quat()  # Returns [x, y, z, w]
-                print ("Marker ID:", i, "\nPosition: ", tvec, "\nOrientation: ", quaternion)
+                pos_text = f"ID {marker_id[0]} | x:{tvec[0][0]:.2f} y:{tvec[0][1]:.2f} z:{tvec[0][2]:.2f}"
+                cv2.putText(
+                    frame,
+                    pos_text,
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 0),
+                    2
+                )
 
-        # Show the image with Aruco markers
-        cv2.imshow('Aruco Markers', cv_image)
-        cv2.waitKey(1)  # For image display refresh
+                rot_mat, _ = cv2.Rodrigues(rvec)
+                quat = R.from_matrix(rot_mat).as_quat() 
+
+                print(
+                    f"\nMarker ID: {marker_id[0]}"
+                    f"\nPosition (m): {tvec}"
+                    f"\nQuaternion: {quat}"
+                )
+
+        cv2.imshow("Aruco Detection", frame)
+        cv2.waitKey(1)
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -89,10 +115,10 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        cv2.destroyAllWindows()
         node.destroy_node()
         rclpy.shutdown()
-        cv2.destroyAllWindows()
+
 
 if __name__ == '__main__':
     main()
-
