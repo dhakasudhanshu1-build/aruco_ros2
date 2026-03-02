@@ -1,9 +1,28 @@
 /**:
   ros__parameters:
-    camera_name: 'camera'
-    image_width: 1280
-    image_height: 720
-    framerate: 30.0
-    pixel_format: 'yuyv'  # Example, use your camera's format
-    io_method: 'mmap'  # Options: mmap, userptr, read, dma
-    video_device: '/dev/video2'  # The camera device path
+  image_width: 1280
+  image_height: 720
+  camera_name: laptop_camera
+  camera_matrix:
+    rows: 3
+    cols: 3
+    data: [950.64077,   0.     , 666.86577,
+            0.     , 947.49475, 365.92328,
+            0.     ,   0.     ,   1.     ]
+  distortion_model: plumb_bob
+  distortion_coefficients:
+    rows: 1
+    cols: 5
+    data: [-0.105338, 0.139434, 0.001233, 0.006295, 0.000000]
+  rectification_matrix:
+    rows: 3
+    cols: 3
+    data: [1., 0., 0.,
+          0., 1., 0.,
+          0., 0., 1.]
+  projection_matrix:
+    rows: 3
+    cols: 4
+    data: [938.12689,   0.     , 673.39695,   0.     ,
+            0.     , 939.56757, 366.29956,   0.     ,
+            0.     ,   0.     ,   1.     ,   0.     ]
